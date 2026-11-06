@@ -16,7 +16,7 @@ type Props = {
 }
 
 const ScoreBar = ({ v }: { v: number }) => (
-  <span className="scorebar" title={dec(v, 3)}><i style={{ width: `${Math.max(0, Math.min(1, v)) * 100}%` }} /><b>{dec(v, 2)}</b></span>
+  <span className="scorebar" title={dec(v, 3)}><span className="track"><i style={{ width: `${Math.max(0, Math.min(1, v)) * 100}%` }} /></span><b>{dec(v, 2)}</b></span>
 )
 
 export function RankingView({ rank, loading, assumptions, overrides, onOverride, onReset, onShowOnMap, operatorNames }: Props) {
@@ -30,11 +30,11 @@ export function RankingView({ rank, loading, assumptions, overrides, onOverride,
   const base: Column<Candidate>[] = [
     { key: 'rank', label: '#', align: 'right' },
     { key: 'operator_name', label: 'Operator', format: v => <b>{v as string}</b> },
-    { key: 'boe_d', label: 'Production', align: 'right', format: v => `${int(v as number)} boe/d` },
+    { key: 'boe_d', label: 'boe/d', align: 'right', format: v => int(v as number), title: 'Production, 2025 average (boe/d)' },
     { key: 'roce', label: 'ROCE', align: 'right', format: v => pct(v as number, 1), title: 'Year-1 after-tax cash flow (incl. transport savings) ÷ price paid' },
     { key: 'accretion', label: 'Value created', align: 'right', title: 'NPV at 15% minus the price paid',
       format: (v, r) => <span className={r.accretive ? 'pos' : 'neg'}>{money(v as number, 0)}{r.accretive && <span className="badge-ok">accretive</span>}</span> },
-    { key: 'transport_savings', label: 'Transport savings', align: 'right', format: v => `${money(v as number, 1)}/yr` },
+    { key: 'transport_savings', label: 'Transport savings/yr', align: 'right', format: v => ((v as number) < 5e4 ? <span className="muted">none</span> : money(v as number, 1)) },
     { key: 'median_km_to_cnrl', label: 'To CNRL', align: 'right', format: v => km(v as number), title: 'Median distance from their facilities to the nearest CNRL facility' },
     { key: 'final_score', label: 'Score', format: v => <ScoreBar v={v as number} /> },
   ]

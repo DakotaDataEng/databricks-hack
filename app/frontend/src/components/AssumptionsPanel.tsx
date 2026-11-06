@@ -1,4 +1,5 @@
 import type { Assumption } from '../api'
+import { NumberField, SearchPicker, Segmented, type Option } from './Controls'
 
 type Field = { label: string; hint?: string; kind?: 'percent' | 'number' | 'enum' | 'weight'; suffix?: string }
 
@@ -38,14 +39,14 @@ const FIELDS: Record<string, Field> = {
   material_deal_boe_d: { label: 'Past deals that count', hint: 'Deals at least this big set the "fit" baseline', suffix: 'boe/d' },
 }
 
-const ENUMS: Record<string, { value: string; label: string }[]> = {
+const ENUMS: Record<string, Option[]> = {
   price_basis: [
-    { value: 'flat', label: 'One price for all production' },
-    { value: 'mix', label: 'Separate gas and liquids prices' },
+    { value: 'flat', label: 'One price', title: 'One price for all production' },
+    { value: 'mix', label: 'Gas vs liquids', title: 'Separate prices for gas and for liquids production' },
   ],
   decline_source: [
-    { value: 'precedent', label: "CNRL's past deals" },
-    { value: 'fitted', label: "Each operator's own history" },
+    { value: 'precedent', label: 'Past deals', title: "Decline seen in CNRL's past deals" },
+    { value: 'fitted', label: 'Own history', title: "Each operator's own 2024–25 decline" },
   ],
 }
 
@@ -80,11 +81,7 @@ export function AssumptionsPanel({ assumptions, overrides, onChange, onReset, op
     const isChanged = key in overrides && overrides[key] !== a.value
     let control
     if (f.kind === 'enum') {
-      control = (
-        <select value={value(key)} onChange={e => set(key, e.target.value)}>
-          {ENUMS[key].map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
-      )
+      control = <Segmented label={f.label} options={ENUMS[key]} value={value(key)} onChange={v => set(key, v)} />
     } else if (f.kind === 'weight') {
       const pctValue = Math.round(Number(value(key)) * 100)
       control = (
@@ -96,16 +93,12 @@ export function AssumptionsPanel({ assumptions, overrides, onChange, onReset, op
     } else {
       const pct = f.kind === 'percent'
       const shown = pct ? String(+(Number(value(key)) * 100).toFixed(4)) : value(key)
-      control = (
-        <span className="num-input">
-          <input type="number" step="any" value={shown}
-            onChange={e => set(key, pct ? String(Number(e.target.value) / 100) : e.target.value)} />
-          {f.suffix && <small>{f.suffix}</small>}
-        </span>
-      )
+      control = <NumberField value={shown} unit={f.suffix} changed={isChanged}
+        onChange={v => set(key, pct ? String(Number(v) / 100) : v)} />
     }
+    const Tag = f.kind === 'enum' ? 'div' : 'label'  // a label around several buttons would forward clicks to the first
     return (
-      <label key={key} className={`assumption ${isChanged ? 'changed' : ''} ${f.kind === 'enum' || f.kind === 'weight' ? 'wide' : ''}`}
+      <Tag key={key} className={`assumption ${isChanged ? 'changed' : ''} ${f.kind === 'enum' || f.kind === 'weight' ? 'wide' : ''}`}
         title={a.description}>
         <span className="name">
           {f.label}
@@ -114,7 +107,7 @@ export function AssumptionsPanel({ assumptions, overrides, onChange, onReset, op
           {a.description.startsWith('PLACEHOLDER') && <em className="src warn">placeholder</em>}
         </span>
         {control}
-      </label>
+      </Tag>
     )
   }
 
@@ -149,10 +142,8 @@ export function AssumptionsPanel({ assumptions, overrides, onChange, onReset, op
               </span>
             ))}
           </div>
-          <select value="" onChange={e => e.target.value && setExcluded([...excluded, e.target.value])}>
-            <option value="">Exclude another operator…</option>
-            {addable.map(c => <option key={c.baid} value={c.baid}>{c.name}</option>)}
-          </select>
+          <SearchPicker placeholder="Search operators to exclude…" onPick={b => setExcluded([...excluded, b])}
+            options={addable.map(c => ({ value: c.baid, label: c.name }))} />
         </div>
       </fieldset>
 

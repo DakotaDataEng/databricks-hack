@@ -1,4 +1,4 @@
-import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { Bar, BarChart, CartesianGrid, LabelList, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { RankResponse } from '../api'
 import { compact, dec, int, km, money, pct } from '../format'
 
@@ -20,14 +20,17 @@ export function Top3View({ rank, onShowOnMap, onAskGenie }: Props) {
     name: `#${t.rank} ${t.operator_name.replace(/ (LTD|INC|CORP|ULC|CORPORATION)\.?$/i, '')}`,
     Liquids: t.savings_liq / 1e6,
     Gas: t.savings_gas / 1e6,
+    total: t.transport_savings,
   }))
+  const series = (['Liquids', 'Gas'] as const).filter(k => chart.some(c => c[k] > 0.005))
+  if (!series.length) series.push('Liquids')
 
   return (
     <section className="content padded">
       <header className="section-head">
         <div>
           <h2>Compare the top 3</h2>
-          <p className="muted">The three best-scoring candidates under the current assumptions. Change assumptions on the Rank tab and this updates.</p>
+          <p className="muted">The three best-scoring candidates under the current assumptions. Change them on the Rank tab and this page updates.</p>
         </div>
       </header>
       <details className="explain">
@@ -51,7 +54,10 @@ export function Top3View({ rank, onShowOnMap, onAskGenie }: Props) {
             <div className="big3">
               <div><span>Value created</span><b className={t.accretion >= 0 ? 'pos' : 'neg'}>{money(t.accretion, 0)}</b></div>
               <div><span>ROCE</span><b>{pct(t.roce, 1)}</b></div>
-              <div><span>Transport savings</span><b>{money(t.transport_savings, 1)}<small>/yr</small></b></div>
+              <div title={t.transport_savings < 5e4 ? 'Its product already travels about as far as it would to CNRL' : undefined}>
+                <span>Transport savings</span>
+                {t.transport_savings < 5e4 ? <b className="muted">None</b> : <b>{money(t.transport_savings, 1)}<small>/yr</small></b>}
+              </div>
             </div>
             <details className="card-more">
               <summary>Details</summary>
@@ -73,14 +79,30 @@ export function Top3View({ rank, onShowOnMap, onAskGenie }: Props) {
         <div className="panel">
           <h3>Transport savings per year, by product</h3>
           <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={chart} layout="vertical" margin={{ left: 8, right: 24 }}>
+            <BarChart data={chart} layout="vertical" margin={{ left: 8, right: 64 }}>
               <CartesianGrid horizontal={false} stroke="#e1e0d9" />
               <XAxis type="number" tick={{ fill: '#898781', fontSize: 11 }} tickFormatter={v => `$${v}M`} />
               <YAxis type="category" dataKey="name" width={170} tick={{ fill: '#52514e', fontSize: 12 }} />
               <Tooltip formatter={v => `$${Number(v).toFixed(2)}M`} />
               <Legend formatter={v => <span style={{ color: '#52514e' }}>{v}</span>} />
-              <Bar dataKey="Liquids" stackId="s" fill="#2a78d6" stroke="#fcfcfb" strokeWidth={2} barSize={22} />
-              <Bar dataKey="Gas" stackId="s" fill="#eb6834" stroke="#fcfcfb" strokeWidth={2} barSize={22} radius={[0, 4, 4, 0]} />
+              {/* Only products that save something get a bar (and a legend entry); the last one carries the total label. */}
+              {series.map((k, i) => (
+                <Bar key={k} dataKey={k} stackId="s" fill={k === 'Liquids' ? '#2a78d6' : '#eb6834'} stroke="#fcfcfb" strokeWidth={2}
+                  barSize={22} radius={i === series.length - 1 ? [0, 4, 4, 0] : 0}>
+                  {i === series.length - 1 && (
+                    <LabelList dataKey="total" position="right" fontSize={12}
+                      content={({ x, y, width, height, value }) => {
+                        const v = Number(value)
+                        return (
+                          <text x={Number(x) + Number(width) + 6} y={Number(y) + Number(height) / 2} dy={4} fontSize={12}
+                            fill={v < 5e4 ? '#898781' : '#0b0b0b'} fontWeight={v < 5e4 ? 400 : 600}>
+                            {v < 5e4 ? 'No saving: already ships about as close as CNRL' : money(v, 1)}
+                          </text>
+                        )
+                      }} />
+                  )}
+                </Bar>
+              ))}
             </BarChart>
           </ResponsiveContainer>
         </div>

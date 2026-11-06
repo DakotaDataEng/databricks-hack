@@ -60,7 +60,7 @@ export function PrecedentsView({ precedents, rank }: Props) {
               hits === bt.length ? <b>All of them land in the top 10%, so the method matches CNRL's real choices.</b>
                 : <b>{hits} of {bt.length} land in the top 10% with the current assumptions.</b>
             ) : null}{' '}
-            {hits < bt.length && 'Tip: on the Rank tab, set “Pricing method” to separate gas and liquids prices and check again.'}
+            {hits < bt.length && 'Tip: on the Rank tab, set “Pricing method” to “Gas vs liquids” and check again.'}
           </p>
         </div>
       </header>

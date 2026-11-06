@@ -60,7 +60,7 @@ export function DataTable<T>({ columns, rows, rowKey, initialSort, highlight, on
       {csvName && (
         <div className="table-tools">
           <span className="muted">
-            {rows.length > maxRows ? `Showing ${maxRows.toLocaleString()} of ${rows.length.toLocaleString()} rows` : `${rows.length.toLocaleString()} rows`}
+            {rows.length > maxRows ? `Showing ${maxRows.toLocaleString()} of ${rows.length.toLocaleString()} rows` : `${rows.length.toLocaleString()} row${rows.length === 1 ? '' : 's'}`}
           </span>
           <span className="table-actions">
             {actions}

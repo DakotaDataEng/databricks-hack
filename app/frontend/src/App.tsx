@@ -24,18 +24,22 @@ export default function App() {
   const [overrides, setOverrides] = useState<Record<string, string>>({})
   const [rank, setRank] = useState<RankResponse | null>(null)
   const [rankLoading, setRankLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [rankError, setRankError] = useState<string | null>(null)
   const [focusOperator, setFocusOperator] = useState<string | null>(null)
   const [genieOpen, setGenieOpen] = useState(false)
   const [geniePrefill, setGeniePrefill] = useState<string | null>(null)
   const [mapContext, setMapContext] = useState<MapContext>(EMPTY_CONTEXT)
   const [selectedWells, setSelectedWells] = useState<Set<string>>(new Set())
 
-  useEffect(() => {
+  // One automatic retry: the first request after Lakebase scales to zero can fail while it wakes up.
+  const load = useCallback((retry: boolean) => {
+    setLoadError(null)
     Promise.all([api.facilities(), api.assumptions(), api.precedents()])
       .then(([f, a, p]) => { setFacilities(f); setAssumptions(a); setPrecedents(p) })
-      .catch(e => setError(String(e)))
+      .catch(e => (retry ? setTimeout(() => load(false), 1500) : setLoadError(String(e))))
   }, [])
+  useEffect(() => load(true), [load])
 
   // Re-rank (debounced) whenever an assumption changes.
   useEffect(() => {
@@ -43,8 +47,8 @@ export default function App() {
     setRankLoading(true)
     const t = setTimeout(() => {
       api.rank(overrides)
-        .then(r => { if (!stale) { setRank(r); setError(null) } })
-        .catch(e => { if (!stale) setError(String(e)) })
+        .then(r => { if (!stale) { setRank(r); setRankError(null) } })
+        .catch(e => { if (!stale) setRankError(String(e)) })
         .finally(() => { if (!stale) setRankLoading(false) })
     }, 350)
     return () => { stale = true; clearTimeout(t) }
@@ -79,7 +83,7 @@ export default function App() {
     <div className={`app ${genieOpen ? 'genie-open' : ''}`}>
       <header className="topbar">
         <div className="brand">
-          <h1>CNRL Acquisition Explorer</h1>
+          <h1>Acquisition App</h1>
           <span>Petrinex 2024–2025 · served from Lakebase</span>
         </div>
         <nav className="tabs">
@@ -91,7 +95,7 @@ export default function App() {
         </nav>
         {top && (
           <button className="top-pick" onClick={() => setTab('top3')} title="Open the top-3 comparison">
-            <span className="muted">Recommended</span>
+            <span className="muted">Top pick</span>
             <b>{top.operator_name}</b>
             <span className="pill">ROCE {pct(top.roce, 0)}</span>
             <span className={`pill ${top.accretion >= 0 ? 'good' : 'bad'}`}>{money(top.accretion, 0)}</span>
@@ -99,7 +103,12 @@ export default function App() {
         )}
         <button className={`btn genie-btn ${genieOpen ? 'on' : ''}`} onClick={() => setGenieOpen(o => !o)}>✦ Ask Genie</button>
       </header>
-      {error && <div className="banner error">{error}</div>}
+      {(loadError || rankError) && (
+        <div className="banner error">
+          Couldn't reach the data service. {loadError ?? rankError}
+          {loadError && <button className="btn small" onClick={() => load(false)}>Try again</button>}
+        </div>
+      )}
       <div className="body">
         <main>
           {/* The map stays mounted so the lasso selection survives tab switches (and stays available to Genie). */}
@@ -121,7 +130,7 @@ export default function App() {
                 onContextChange={setMapContext}
                 onAskGenie={askGenie}
               />
-            ) : <p className="loading">Loading 25,316 facilities from Lakebase…</p>}
+            ) : !loadError && <p className="loading">Loading 25,316 facilities from Lakebase. The first load after a quiet spell takes a few seconds.</p>}
           </div>
           {tab === 'ranking' && (
             <RankingView rank={rank} loading={rankLoading} assumptions={assumptions} overrides={overrides}

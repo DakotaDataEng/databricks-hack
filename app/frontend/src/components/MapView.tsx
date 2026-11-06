@@ -3,23 +3,45 @@ import DeckGL, { type DeckGLRef } from '@deck.gl/react'
 import { ScatterplotLayer } from '@deck.gl/layers'
 import { WebMercatorViewport, type MapViewState } from '@deck.gl/core'
 import { Map } from 'react-map-gl/maplibre'
-import { setWorkerUrl } from 'maplibre-gl'
+import { setWorkerUrl, type StyleSpecification } from 'maplibre-gl'
 import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { api, type Candidate, type Facility, type MapContext, type NearbyRequest, type NearbyResponse } from '../api'
 import { compact, dec, int, km } from '../format'
 import { DataTable, type Column } from './DataTable'
 import { FacilityDetails } from './FacilityDetails'
+import { Segmented } from './Controls'
 
 // MapLibre 6 looks for its tile worker next to its own module, which bundling breaks ("Worker failed to load",
 // blank basemap). Ship the self-contained worker as a build asset and point MapLibre at it explicitly.
 setWorkerUrl(maplibreWorkerUrl)
 
 // Basemap tiles are imagery only; every number on screen comes from shm_hack via Lakebase.
-const BASEMAP = 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json'
+const STREETS = 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json'
+const esri = (service: string) => `https://server.arcgisonline.com/ArcGIS/rest/services/${service}/MapServer/tile/{z}/{y}/{x}`
+// Esri World Imagery with its place-name overlay on top, so towns stay readable over the photos.
+const SATELLITE: StyleSpecification = {
+  version: 8,
+  sources: {
+    imagery: { type: 'raster', tiles: [esri('World_Imagery')], tileSize: 256, maxzoom: 19,
+      attribution: 'Imagery © Esri, Maxar, Earthstar Geographics' },
+    labels: { type: 'raster', tiles: [esri('Reference/World_Boundaries_and_Places')], tileSize: 256, maxzoom: 19 },
+  },
+  layers: [
+    { id: 'imagery', type: 'raster', source: 'imagery' },
+    { id: 'labels', type: 'raster', source: 'labels' },
+  ],
+}
+type Basemap = 'streets' | 'satellite'
+const BASEMAP_KEY = 'acq.basemap'
+const savedBasemap = (): Basemap => {
+  try { return localStorage.getItem(BASEMAP_KEY) === 'satellite' ? 'satellite' : 'streets' } catch { return 'streets' }
+}
 // Centred east of Alberta's middle so the control panel doesn't cover the western plays.
 const INITIAL_VIEW: MapViewState = { longitude: -114.2, latitude: 54.6, zoom: 4.9, pitch: 0, bearing: 0 }
 const CLICK_SLOP_PX = 4
+// Deep enough to see individual well pads and facility sites on the satellite imagery.
+const MAX_ZOOM = 18
 
 type RGB = [number, number, number]
 const COLORS: Record<'legacy' | 'acquired' | 'competitor' | 'ink' | 'top3', RGB> = {
@@ -86,7 +108,12 @@ export function MapView({ facilities, candidates, tariffs, top3Baids, focusOpera
   const [result, setResult] = useState<NearbyResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [resultTab, setResultTab] = useState<'facilities' | 'operators'>('operators')
+  const [basemap, setBasemap] = useState<Basemap>(savedBasemap)
+  const chooseBasemap = (b: string) => {
+    setBasemap(b as Basemap)
+    try { localStorage.setItem(BASEMAP_KEY, b) } catch { /* private mode: the choice just isn't remembered */ }
+  }
+  const [resultTab, setResultTab] = useState<'facilities' | 'operators' | 'selection'>('operators')
 
   const visible = useMemo(() => facilities.filter(f => types.has(f.facility_type_code)), [facilities, types])
   const cnrl = useMemo(
@@ -97,6 +124,26 @@ export function MapView({ facilities, candidates, tariffs, top3Baids, focusOpera
     () => (show.competitor ? visible.filter(f => !f.is_cnrl && f.boe_d > 0) : []),
     [visible, show.competitor],
   )
+  // Petrinex coordinates are coarse: many facilities share one point (up to 36 CNRL ones), so one dot can be many assets.
+  const ptKey = (f: Facility) => `${f.lat},${f.lon}`
+  const stacked = useMemo(() => {
+    const m = new globalThis.Map<string, number>()
+    for (const f of [...cnrl, ...competitors]) m.set(ptKey(f), (m.get(ptKey(f)) ?? 0) + 1)
+    return m
+  }, [cnrl, competitors])
+  // Selected dots last, so they sit on top of the faded ones at shared spots.
+  const cnrlOrdered = useMemo(
+    () => (selected.size ? [...cnrl.filter(f => !selected.has(f.facility_id)), ...cnrl.filter(f => selected.has(f.facility_id))] : cnrl),
+    [cnrl, selected],
+  )
+  const selectedRows = useMemo(() => facilities.filter(f => selected.has(f.facility_id)), [facilities, selected])
+  // One ring per dot (the biggest facility on it sets the size), not one per stacked facility.
+  const selectedDots = useMemo(() => {
+    const m = new globalThis.Map<string, Facility>()
+    for (const f of selectedRows) if (!m.has(ptKey(f)) || m.get(ptKey(f))!.boe_d < f.boe_d) m.set(ptKey(f), f)
+    return [...m.values()]
+  }, [selectedRows])
+  const selectedPoints = selectedDots.length
   const resultIds = useMemo(() => new Set(result?.facilities.map(f => f.facility_id)), [result])
   const top3 = useMemo(() => new Set(top3Baids), [top3Baids])
 
@@ -117,18 +164,19 @@ export function MapView({ facilities, candidates, tariffs, top3Baids, focusOpera
   const focusCandidate = candidates.find(c => c.operator_baid === focusOperator)
 
   // Fly to the focused operator, leaving room for the panel and the banner.
-  useEffect(() => {
-    if (!focused.length) return
+  // Frame a set of facilities, leaving room for the control panel.
+  const frame = (fs: Facility[]) => {
     const el = surfaceRef.current
-    const lats = focused.map(f => f.lat), lons = focused.map(f => f.lon)
+    if (!fs.length || !el || !el.clientWidth) return
+    const lats = fs.map(f => f.lat), lons = fs.map(f => f.lon)
     const pad = 0.05 // degrees, so a single facility still gets a sensible zoom
     const bounds: [[number, number], [number, number]] = [
       [Math.min(...lons) - pad, Math.min(...lats) - pad], [Math.max(...lons) + pad, Math.max(...lats) + pad]]
-    if (!el || !el.clientWidth) return
     const fit = new WebMercatorViewport({ width: el.clientWidth, height: el.clientHeight }).fitBounds(
       bounds, { padding: { left: 300, right: 60, top: 80, bottom: 70 }, maxZoom: 11 })
     setView(v => ({ ...v, longitude: fit.longitude, latitude: fit.latitude, zoom: fit.zoom }))
-  }, [focused])
+  }
+  useEffect(() => frame(focused), [focused])
 
   // Query Lakebase whenever the selection or search parameters change.
   useEffect(() => {
@@ -245,7 +293,7 @@ export function MapView({ facilities, candidates, tariffs, top3Baids, focusOpera
     // Zoom toward the cursor: keep the point under the mouse fixed.
     const { width, height } = size()
     const [x, y] = local(e)
-    const zoom = Math.max(3, Math.min(14, view.zoom - e.deltaY / 400))
+    const zoom = Math.max(3, Math.min(MAX_ZOOM, view.zoom - e.deltaY / 400))
     const before = new WebMercatorViewport({ ...view, width, height })
     const anchor = before.unproject([x, y])
     const after = new WebMercatorViewport({ ...view, zoom, width, height })
@@ -289,19 +337,20 @@ export function MapView({ facilities, candidates, tariffs, top3Baids, focusOpera
     }),
     new ScatterplotLayer<Facility>({
       id: 'cnrl',
-      data: cnrl,
+      data: cnrlOrdered,
       getPosition: f => [f.lon, f.lat],
-      getRadius: f => Math.max(3, radius(f.boe_d)) + (f.facility_id === detailId ? 2 : 0),
+      // Selection is shown quietly: selected dots stay solid and grow a little, unselected CNRL dots fade back.
+      getRadius: f => Math.max(3, radius(f.boe_d)) + (f.facility_id === detailId ? 2 : selected.has(f.facility_id) ? 1.5 : 0),
       radiusUnits: 'pixels',
       getFillColor: f => [...(f.is_acquired ? COLORS.acquired : COLORS.legacy),
-        selected.has(f.facility_id) ? 255 : focusOperator ? 70 : 190],
+        selected.has(f.facility_id) ? 255 : focusOperator ? 70 : selected.size ? 70 : 190],
       stroked: true,
       lineWidthUnits: 'pixels',
-      getLineWidth: f => (selected.has(f.facility_id) || f.facility_id === detailId ? 2 : 0.5),
-      getLineColor: f => (selected.has(f.facility_id) || f.facility_id === detailId ? COLORS.ink : [255, 255, 255]),
+      getLineWidth: f => (f.facility_id === detailId ? 2 : selected.has(f.facility_id) ? 1.5 : 0.5),
+      getLineColor: f => (f.facility_id === detailId ? COLORS.ink : [255, 255, 255]),
       pickable: true,
       updateTriggers: {
-        getRadius: [detailId], getFillColor: [selected, focusOperator], getLineWidth: [selected, detailId], getLineColor: [selected, detailId],
+        getRadius: [selected, detailId], getFillColor: [selected, focusOperator], getLineWidth: [selected, detailId], getLineColor: [detailId],
       },
     }),
     // Drawn last so the focused operator is never hidden under CNRL dots at shared locations.
@@ -351,6 +400,20 @@ export function MapView({ facilities, candidates, tariffs, top3Baids, focusOpera
     { key: 'boe_d', label: 'boe/d', align: 'right', format: v => int(v as number) },
   ]
 
+  const TYPE_LABEL: Record<string, string> = { BT: 'Battery', GS: 'Gathering', GP: 'Gas plant', IF: 'Injection' }
+  const selectionCols: Column<Facility>[] = [
+    { key: 'facility_name', label: 'CNRL asset', format: (v, r) => <b>{(v as string) ?? r.facility_id}</b> },
+    { key: 'facility_type_code', label: 'Type', format: v => TYPE_LABEL[v as string] ?? (v as string) },
+    { key: 'is_acquired', label: 'Origin', format: (v, r) => (v ? `Bought from ${r.seller_name}` : 'CNRL'), csv: r => (r.is_acquired ? `Bought from ${r.seller_name}` : 'CNRL') },
+    { key: 'boe_d', label: 'boe/d', align: 'right', format: v => int(v as number) },
+    { key: 'lat', label: 'Shares its dot with', align: 'right', title: 'Petrinex places many facilities on the same point',
+      format: (_, r) => { const n = (stacked.get(ptKey(r)) ?? 1) - 1; return n ? `${int(n)} other${n === 1 ? '' : 's'}` : <span className="muted">–</span> },
+      csv: r => (stacked.get(ptKey(r)) ?? 1) - 1 },
+    { key: 'facility_id', label: '', align: 'right', csv: r => r.facility_id,
+      format: (_, r) => <button className="btn ghost small" title="Remove from the selection"
+        onClick={e => { e.stopPropagation(); toggleSelect(r.facility_id) }}>Remove</button> },
+  ]
+
   const toggleType = (code: string) =>
     setTypes(prev => {
       const next = new Set(prev)
@@ -365,8 +428,13 @@ export function MapView({ facilities, candidates, tariffs, top3Baids, focusOpera
     <div className={`map-page ${selected.size ? 'has-results' : ''}`}>
       <div className="map-area">
         <DeckGL ref={deckRef} viewState={view} controller={false} layers={layers}>
-          <Map mapStyle={BASEMAP} />
+          <Map mapStyle={basemap === 'satellite' ? SATELLITE : STREETS} />
         </DeckGL>
+
+        <div className="basemap-switch" onPointerDown={e => e.stopPropagation()}>
+          <Segmented label="Basemap" value={basemap} onChange={chooseBasemap}
+            options={[{ value: 'streets', label: 'Map' }, { value: 'satellite', label: 'Satellite' }]} />
+        </div>
 
         <div
           ref={surfaceRef}
@@ -389,6 +457,9 @@ export function MapView({ facilities, candidates, tariffs, top3Baids, focusOpera
               <b>{hover.f.facility_name ?? hover.f.facility_id}</b>
               <span>{hover.f.is_cnrl ? (hover.f.is_acquired ? `CNRL · bought from ${hover.f.seller_name}` : 'CNRL') : hover.f.operator_name}</span>
               <span>{int(hover.f.boe_d)} boe/d · click for details</span>
+              {(stacked.get(ptKey(hover.f)) ?? 1) > 1 && (
+                <span className="stack-note">+{int((stacked.get(ptKey(hover.f)) ?? 1) - 1)} more facilities on this same spot</span>
+              )}
             </div>
           )}
         </div>
@@ -397,8 +468,15 @@ export function MapView({ facilities, candidates, tariffs, top3Baids, focusOpera
           <h3>Who produces near CNRL?</h3>
           {selected.size ? (
             <div className="selection">
-              <span><strong>{int(selected.size)}</strong> CNRL asset{selected.size === 1 ? '' : 's'} selected</span>
-              <button className="btn ghost small" onClick={() => setSelected(new Set())}>Clear</button>
+              <div>
+                <strong>{int(selected.size)}</strong> CNRL asset{selected.size === 1 ? '' : 's'} selected
+                {selectedPoints < selected.size && <span className="muted"> on {int(selectedPoints)} map dot{selectedPoints === 1 ? '' : 's'}</span>}
+              </div>
+              <div className="selection-actions">
+                <button className="link" onClick={() => setResultTab('selection')}>See the list</button>
+                <button className="btn ghost small" onClick={() => frame(selectedDots)} title="Fit the map to the selected assets">Zoom to</button>
+                <button className="btn ghost small" onClick={() => setSelected(new Set())}>Clear</button>
+              </div>
             </div>
           ) : (
             <p className="step-hint">Draw a loop around the <i className="dot" style={{ background: `rgb(${COLORS.legacy.join(',')})` }} /> blue CNRL assets on the map.</p>
@@ -420,20 +498,18 @@ export function MapView({ facilities, candidates, tariffs, top3Baids, focusOpera
 
           <details className="more">
             <summary>More options</summary>
-            <label className="field">
+            <div className="field">
               <span>Search by</span>
-              <select value={params.mode} onChange={e => setParams(p => ({ ...p, mode: e.target.value as 'radius' | 'knn' }))}>
-                <option value="radius">Distance (radius)</option>
-                <option value="knn">Nearest facilities to each asset</option>
-              </select>
-            </label>
-            <label className="field">
+              <Segmented label="Search by" value={params.mode} onChange={v => setParams(p => ({ ...p, mode: v as 'radius' | 'knn' }))}
+                options={[{ value: 'radius', label: 'Distance', title: 'Everything within a radius of the selected assets' },
+                  { value: 'knn', label: 'Nearest N', title: 'The nearest competitor facilities to each selected asset' }]} />
+            </div>
+            <div className="field">
               <span>Production period</span>
-              <select value={params.window} onChange={e => setParams(p => ({ ...p, window: e.target.value as '2025' | 'last3' }))}>
-                <option value="2025">2025 average</option>
-                <option value="last3">Last 3 months (Oct–Dec 2025)</option>
-              </select>
-            </label>
+              <Segmented label="Production period" value={params.window} onChange={v => setParams(p => ({ ...p, window: v as '2025' | 'last3' }))}
+                options={[{ value: '2025', label: '2025 average' },
+                  { value: 'last3', label: 'Oct–Dec 2025', title: 'Last 3 months (Oct–Dec 2025)' }]} />
+            </div>
             <div className="field">
               <span>Facility types shown</span>
               <div className="chips">
@@ -525,6 +601,7 @@ export function MapView({ facilities, candidates, tariffs, top3Baids, focusOpera
             <div className="seg">
               <button className={resultTab === 'operators' ? 'on' : ''} onClick={() => setResultTab('operators')}>By operator</button>
               <button className={resultTab === 'facilities' ? 'on' : ''} onClick={() => setResultTab('facilities')}>By facility</button>
+              <button className={resultTab === 'selection' ? 'on' : ''} onClick={() => setResultTab('selection')}>Selected CNRL assets <span className="count">{int(selected.size)}</span></button>
             </div>
             <button className="btn genie-btn small-btn" disabled={!result?.facilities.length}
               onClick={() => onAskGenie('Which of these nearby competitors would be the best acquisition for CNRL, and why?')}>
@@ -534,7 +611,17 @@ export function MapView({ facilities, candidates, tariffs, top3Baids, focusOpera
           {loading && result && <span className="muted">Updating…</span>}
           {error && <span className="error">{error}</span>}
         </div>
-        {resultTab === 'operators' ? (
+        {resultTab === 'selection' ? (
+          <DataTable
+            columns={selectionCols}
+            rows={selectedRows}
+            rowKey={r => r.facility_id}
+            initialSort={{ key: 'boe_d', desc: true }}
+            onRowClick={r => setDetailId(r.facility_id)}
+            csvName="selected-cnrl-assets"
+            empty="Nothing selected."
+          />
+        ) : resultTab === 'operators' ? (
           <DataTable
             columns={operatorCols}
             rows={result?.operators ?? []}
