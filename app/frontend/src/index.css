@@ -314,8 +314,25 @@ details.advanced summary { cursor: pointer; font-size: 12px; font-weight: 600; c
 .sql summary { cursor: pointer; font-size: 12px; color: var(--muted); }
 .sql pre { background: var(--surface); border: 1px solid var(--grid); border-radius: 6px; padding: 8px; overflow: auto; max-height: 240px; white-space: pre; }
 .follow-ups { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
-.genie-input { display: flex; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--grid); align-items: flex-end; }
-.genie-input textarea { flex: 1; resize: none; border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; font-size: 13px; background: var(--surface); }
+.genie-input { padding: 10px 14px 8px; border-top: 1px solid var(--grid); background: var(--surface); }
+.composer {
+  display: flex; align-items: flex-end; gap: 6px; padding: 6px 6px 6px 12px; border: 1px solid var(--axis);
+  border-radius: 14px; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04); transition: border-color 0.15s, box-shadow 0.15s;
+}
+.composer:focus-within { border-color: var(--top3); box-shadow: 0 0 0 3px #ece8fc; }
+.composer textarea {
+  flex: 1; min-width: 0; resize: none; border: none; outline: none; background: none; padding: 5px 0;
+  font-size: 13.5px; line-height: 1.45; max-height: 140px; overflow-y: auto;
+}
+.composer textarea::placeholder { color: var(--muted); }
+.composer textarea:focus-visible { outline: none; }
+.composer .send {
+  flex: none; width: 32px; height: 32px; border-radius: 50%; border: none; cursor: pointer; display: grid; place-items: center;
+  background: var(--top3); color: #fff; transition: background 0.15s, opacity 0.15s;
+}
+.composer .send:hover:not(:disabled) { background: #4f3dc0; }
+.composer .send:disabled { background: var(--grid); color: var(--muted); cursor: default; }
+.composer-hint { margin-top: 5px; font-size: 11px; color: var(--muted); text-align: center; }
 
 .wells-tools { display: flex; justify-content: space-between; align-items: center; }
 .wells-list { max-height: 180px; overflow: auto; border: 1px solid var(--grid); border-radius: 6px; margin: 4px 0; }
@@ -426,3 +443,29 @@ button.link { border: none; background: none; padding: 0; color: var(--accent); 
 /* Genie tables live in a narrow panel: let text and headers wrap, keep numbers on one line. */
 .genie-thread table.data th, .genie-thread table.data td { white-space: normal; padding: 5px 8px; }
 .genie-thread table.data td.right { white-space: nowrap; }
+
+/* ---------- CNRL-specific reference (Past CNRL deals) ---------- */
+details.cnrl-terms { margin: 28px 0 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+details.cnrl-terms > summary { cursor: pointer; padding: 9px 14px; font-size: 13px; font-weight: 600; color: var(--ink); list-style-position: inside; }
+details.cnrl-terms > summary .muted { font-weight: 400; }
+details.cnrl-terms[open] > summary { border-bottom: 1px solid var(--grid); }
+.cnrl-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 0; }
+.cnrl-groups section { padding: 12px 14px; border-right: 1px solid var(--grid); }
+.cnrl-groups section:last-child { border-right: none; }
+.cnrl-groups h4 { margin: 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-2); }
+.cnrl-groups p { margin: 2px 0 8px; }
+.cnrl-groups dl { margin: 0; }
+.cnrl-groups dl > div { display: grid; grid-template-columns: 1fr auto; column-gap: 12px; padding: 6px 0; border-top: 1px solid var(--grid); }
+.cnrl-groups dt { font-size: 12.5px; font-weight: 600; }
+.cnrl-groups dd { margin: 0; }
+.cnrl-groups dd.val { font-size: 12.5px; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); white-space: nowrap; }
+.cnrl-groups dd.meaning { grid-column: 1 / -1; font-size: 11.5px; color: var(--muted); line-height: 1.45; margin-top: 2px; }
+.results-title { flex: 1 1 360px; min-width: 0; }
+.results-actions { margin-left: auto; }
+
+/* Credit line, drawn above the deck.gl dots (MapLibre's built-in one sat underneath them). */
+.map-attrib {
+  position: absolute; right: 0; bottom: 0; z-index: 2; max-width: 100%; padding: 2px 8px; font-size: 11px; color: var(--ink-2);
+  background: rgba(252, 252, 251, 0.85); border-top-left-radius: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.map-attrib a { color: inherit; }

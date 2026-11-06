@@ -428,8 +428,17 @@ export function MapView({ facilities, candidates, tariffs, top3Baids, focusOpera
     <div className={`map-page ${selected.size ? 'has-results' : ''}`}>
       <div className="map-area">
         <DeckGL ref={deckRef} viewState={view} controller={false} layers={layers}>
-          <Map mapStyle={basemap === 'satellite' ? SATELLITE : STREETS} />
+          <Map mapStyle={basemap === 'satellite' ? SATELLITE : STREETS} attributionControl={false} />
         </DeckGL>
+
+        {/* Our own credit line: deck.gl draws its canvas over the whole basemap (MapLibre's own control included),
+            so the built-in attribution ended up underneath the dots. */}
+        <div className="map-attrib" onPointerDown={e => e.stopPropagation()}>
+          {basemap === 'satellite'
+            ? <>Imagery © <a href="https://www.esri.com" target="_blank" rel="noreferrer">Esri</a>, Maxar, Earthstar Geographics</>
+            : <>© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions" target="_blank" rel="noreferrer">CARTO</a></>}
+          {' · '}<a href="https://maplibre.org" target="_blank" rel="noreferrer">MapLibre</a>
+        </div>
 
         <div className="basemap-switch" onPointerDown={e => e.stopPropagation()}>
           <Segmented label="Basemap" value={basemap} onChange={chooseBasemap}
@@ -465,7 +474,7 @@ export function MapView({ facilities, candidates, tariffs, top3Baids, focusOpera
         </div>
 
         <div className="map-panel controls" onPointerDown={e => e.stopPropagation()} onWheel={e => e.stopPropagation()}>
-          <h3>Who produces near CNRL?</h3>
+          <h3>Competitors near CNRL</h3>
           {selected.size ? (
             <div className="selection">
               <div>
@@ -479,7 +488,7 @@ export function MapView({ facilities, candidates, tariffs, top3Baids, focusOpera
               </div>
             </div>
           ) : (
-            <p className="step-hint">Draw a loop around the <i className="dot" style={{ background: `rgb(${COLORS.legacy.join(',')})` }} /> blue CNRL assets on the map.</p>
+            <p className="step-hint">Draw a loop around <i className="dot" style={{ background: `rgb(${COLORS.legacy.join(',')})` }} /> CNRL assets to see the competitors near them.</p>
           )}
 
           {params.mode === 'radius' ? (
@@ -575,9 +584,9 @@ export function MapView({ facilities, candidates, tariffs, top3Baids, focusOpera
 
       {!selected.size ? (
         <div className="results-empty">
-          <b>Start here:</b> draw a loop around CNRL assets on the map. You'll see every competitor facility within {params.radius_km} km,
-          with its oil, gas and NGL production, grouped by operator.
-          <span className="muted"> Or click any dot to see its details.</span>
+          <b>Start here:</b> draw a loop around CNRL assets to list every competitor facility within {params.radius_km} km and what it
+          produces, grouped by operator.
+          <span className="muted"> Click any dot for details.</span>
         </div>
       ) : (
       <div className="results">
@@ -585,8 +594,8 @@ export function MapView({ facilities, candidates, tariffs, top3Baids, focusOpera
           <div className="results-title">
             <h3>
               {loading && !result ? 'Searching…' : (
-                <>{int(totals.n)} competitor facilities from {int(result?.operators.length ?? 0)} operators{' '}
-                  {params.mode === 'radius' ? `within ${params.radius_km} km of` : `nearest to`} your {int(selected.size)} selected CNRL asset{selected.size === 1 ? '' : 's'}</>
+                <>{int(result?.operators.length ?? 0)} competitor operator{result?.operators.length === 1 ? '' : 's'} nearby
+                  <span className="muted"> · {int(totals.n)} facilit{totals.n === 1 ? 'y' : 'ies'}</span></>
               )}
             </h3>
             <div className="totals">
@@ -594,7 +603,10 @@ export function MapView({ facilities, candidates, tariffs, top3Baids, focusOpera
               <span><b>{dec(totals.gas, 0)}</b> MMcf/d gas</span>
               <span><b>{compact(totals.ngl)}</b> bbl/d NGLs</span>
               <span><b>{compact(totals.boe)}</b> boe/d total</span>
-              <span className="muted">{params.window === '2025' ? '2025 average' : 'Oct–Dec 2025'}</span>
+              <span className="muted">
+                {params.mode === 'radius' ? `Within ${params.radius_km} km of` : 'Nearest to'} your {int(selected.size)} selected CNRL
+                asset{selected.size === 1 ? '' : 's'} · {params.window === '2025' ? '2025 average' : 'Oct–Dec 2025'}
+              </span>
             </div>
           </div>
           <div className="results-actions">

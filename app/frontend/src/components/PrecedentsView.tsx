@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import type { Backtest, Precedent, RankResponse } from '../api'
 import { dec, int, km, pct } from '../format'
+import { CnrlTerms } from './CnrlTerms'
 import { DataTable, type Column } from './DataTable'
 
-type Props = { precedents: Precedent[]; rank: RankResponse | null }
+type Props = { precedents: Precedent[]; rank: RankResponse | null; operatorNames: Map<string, string> }
 
-export function PrecedentsView({ precedents, rank }: Props) {
+export function PrecedentsView({ precedents, rank, operatorNames }: Props) {
   const [allColumns, setAllColumns] = useState(false)
   const material = Number(rank?.assumptions.material_deal_boe_d ?? 5000)
   const base: Column<Precedent>[] = [
@@ -40,10 +41,10 @@ export function PrecedentsView({ precedents, rank }: Props) {
     <section className="content padded">
       <header className="section-head">
         <div>
-          <h2>What CNRL has bought before</h2>
+          <h2>CNRL acquisitions, 2024–25</h2>
           <p className="muted">
-            Facilities that switched to CNRL in 2024–25, measured over the 6 months before the deal. The {big.length} deals
-            of {int(material)}+ boe/d (highlighted) are the yardstick for “fit with past deals”: all were close to existing CNRL assets.
+            CNRL’s 2024–25 acquisitions, measured over the 6 months before each deal. The {big.length} deals over {int(material)} boe/d
+            (highlighted) set the profile that candidates are compared with. All of them sat close to existing CNRL assets.
           </p>
         </div>
       </header>
@@ -53,18 +54,20 @@ export function PrecedentsView({ precedents, rank }: Props) {
 
       <header className="section-head">
         <div>
-          <h2>Would our method have picked them?</h2>
+          <h2>Ranking back-test</h2>
           <p className="muted">
-            Each big past deal is scored as if it were for sale today, against today's candidates (judged only against the
-            <em> other</em> past deals). {bt.length ? (
-              hits === bt.length ? <b>All of them land in the top 10%, so the method matches CNRL's real choices.</b>
-                : <b>{hits} of {bt.length} land in the top 10% with the current assumptions.</b>
+            We score each big past deal as if it were for sale today, comparing it only with the <em>other</em> past deals.{' '}
+            {bt.length ? (
+              hits === bt.length ? <b>All of them rank in the top 10%, so the method matches CNRL’s real choices.</b>
+                : <b>{hits} of {bt.length} rank in the top 10% with the current settings.</b>
             ) : null}{' '}
-            {hits < bt.length && 'Tip: on the Rank tab, set “Pricing method” to “Gas vs liquids” and check again.'}
+            {hits < bt.length && 'Try setting “Pricing method” to “Gas vs liquids” on the Rank tab.'}
           </p>
         </div>
       </header>
       <DataTable columns={btCols} rows={bt} rowKey={r => r.seller_name} initialSort={{ key: 'rank', desc: false }} />
+
+      <CnrlTerms rank={rank} operatorNames={operatorNames} />
     </section>
   )
 }

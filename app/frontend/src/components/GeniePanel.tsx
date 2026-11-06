@@ -45,15 +45,17 @@ function Markdown({ text }: { text: string }) {
 
 // Genie returns raw SQL column names (liq_m3km_saved, fitted_annual_decline); make them readable.
 const UNITS: [RegExp, string][] = [
-  [/\bboe d\b/g, 'boe/d'], [/\bbbl d\b/g, 'bbl/d'], [/\bmmcf d\b/g, 'MMcf/d'], [/\be3m3km\b/g, 'e³m³·km'],
+  [/\bboe d\b/g, 'boe/d'], [/\bbbl d\b/g, 'bbl/d'], [/\bmmcf d\b/g, 'MMcf/d'], [/\bmmcf\b/g, 'MMcf'], [/\bbcf\b/g, 'Bcf'],
+  [/\b(\d+) ?km\b/g, '$1 km'], [/\be3m3km\b/g, 'e³m³·km'],
   [/\bm3km\b/g, 'm³·km'], [/\be3m3\b/g, 'e³m³'], [/\bm3\b/g, 'm³'], [/\s*\b(pct|percent)\b/g, ''], [/\bbaid\b/g, 'BA ID'],
   [/\bid\b/g, 'ID'], [/\bliq\b/g, 'liquids'], [/\bcnrl\b/g, 'CNRL'], [/\bnpv\b/g, 'NPV'], [/\broce\b/g, 'ROCE'],
-  [/\balberta\b/g, 'Alberta'], [/\baeco\b/g, 'AECO'], [/\bwti\b/g, 'WTI'], [/\bwcs\b/g, 'WCS'],
+  [/\bjan\b/g, 'Jan'], [/\bdec\b/g, 'Dec'], [/\balberta\b/g, 'Alberta'], [/\baeco\b/g, 'AECO'], [/\bwti\b/g, 'WTI'], [/\bwcs\b/g, 'WCS'],
 ]
 function humanize(col: string) {
   let s = col.toLowerCase().replace(/_/g, ' ').replace(/\s+/g, ' ').trim()
   for (const [re, to] of UNITS) s = s.replace(re, to)
-  return s.charAt(0).toUpperCase() + s.slice(1)
+  // Capitalise the first word, but leave a leading unit alone ("boe/d within 25 km", not "Boe/d…").
+  return /^(boe|bbl|e³m³|m³|km)\b/.test(s) ? s : s.charAt(0).toUpperCase() + s.slice(1)
 }
 // Columns named *_pct are already percentages; shares, declines and rates otherwise come back as fractions.
 const isPct = (col: string) => /(^|_)(pct|percent)(_|$)/i.test(col)
@@ -65,6 +67,8 @@ function fmtCell(v: string | null, col: string) {
   if (!Number.isFinite(n) || /^0\d/.test(v.trim()) || /^\d{4}-\d{2}/.test(v)) return v  // text, codes with leading zeros, dates
   if (isPct(col)) return `${n.toLocaleString('en-US', { maximumFractionDigits: 1 })}%`
   if (isRatio(col) && Math.abs(n) <= 1.5) return `${(n * 100).toLocaleString('en-US', { maximumFractionDigits: 1 })}%`
+  // A share above 1.5 can only be a percentage already (e.g. 93.5), so it just needs the sign.
+  if (/share/i.test(col) && Math.abs(n) <= 100) return `${n.toLocaleString('en-US', { maximumFractionDigits: 1 })}%`
   return n.toLocaleString('en-US', { maximumFractionDigits: Math.abs(n) >= 1000 ? 0 : Math.abs(n) >= 10 ? 1 : 2 })
 }
 
@@ -88,6 +92,17 @@ function ResultTable({ a }: { a: GenieAnswer }) {
     format: v => fmtCell(v as string | null, c),
   }))
   return <DataTable columns={cols} rows={rows} rowKey={r => r.__i} csvName="genie-result" maxRows={50} />
+}
+
+const words = (q: string) => new Set(q.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean))
+/**
+ * True for a near-verbatim repeat (Jaccard ≥ 0.85). Kept strict on purpose: word overlap can't tell "trend for the
+ * first one" from "trend for CNRL", so a looser cut would hide genuinely different follow-ups.
+ */
+function sameQuestion(a: string, b: string) {
+  const x = words(a), y = words(b)
+  const inter = [...x].filter(w => y.has(w)).length
+  return inter / (x.size + y.size - inter || 1) >= 0.85
 }
 
 function contextSummary(c: MapContext) {
@@ -119,9 +134,18 @@ export function GeniePanel({ open, onClose, context, onClearWells, prefill, onPr
     else lastQuestionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }, [messages, busy])
   const lastUser = messages.map(m => m.role).lastIndexOf('user')
+  const asked = messages.flatMap(m => (m.role === 'user' ? [m.text] : []))
+  const freshFollowUps = (qs: string[]) => qs.filter(q => !asked.some(a => sameQuestion(a, q))).slice(0, 3)
   useEffect(() => {
     if (prefill) { setInput(prefill); onPrefillUsed(); setTimeout(() => inputRef.current?.focus(), 50) }
   }, [prefill, onPrefillUsed])
+
+  useEffect(() => {
+    const el = inputRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, 140)}px`
+  }, [input, open])
 
   const summary = contextSummary(context)
   const attach = useContext && summary.length > 0
@@ -169,14 +193,14 @@ export function GeniePanel({ open, onClose, context, onClearWells, prefill, onPr
             {context.well_ids.length > 0 && <button className="btn ghost small" onClick={onClearWells}>Clear wells</button>}
           </div>
         ) : (
-          <p className="muted small-text">Nothing selected. Lasso CNRL assets, click a facility or tick its wells on the map, and they'll be sent to Genie as context.</p>
+          <p className="muted small-text">Nothing selected yet. Whatever you select on the map (CNRL assets, a facility or its wells) is sent along with your question.</p>
         )}
       </div>
 
       <div className="genie-thread">
         {!messages.length && (
           <div className="genie-empty">
-            <p className="muted">Ask anything about Alberta production, operators, wells, emissions, prices or CNRL's acquisition picture. Try:</p>
+            <p className="muted">Ask about Alberta production, operators, wells, emissions, prices or CNRL’s deals. For example:</p>
             {(info?.sample_questions ?? []).map(q => (
               <button key={q} className="suggest" onClick={() => send(q)}>{q}</button>
             ))}
@@ -216,15 +240,15 @@ export function GeniePanel({ open, onClose, context, onClearWells, prefill, onPr
             )}
             {m.answer.sql && (
               <details className="sql">
-                <summary>How Genie got this (SQL)</summary>
+                <summary>Generated SQL</summary>
                 {m.answer.sql_description && <p className="muted small-text">{m.answer.sql_description}</p>}
                 <pre>{m.answer.sql}</pre>
               </details>
             )}
-            {m.answer.suggested_questions.length > 0 && i === messages.length - 1 && (
+            {freshFollowUps(m.answer.suggested_questions).length > 0 && i === messages.length - 1 && (
               <div className="follow-ups">
                 <span className="follow-label">Ask next</span>
-                {m.answer.suggested_questions.slice(0, 3).map(q => <button key={q} className="suggest small" onClick={() => send(q)}>{q}</button>)}
+                {freshFollowUps(m.answer.suggested_questions).map(q => <button key={q} className="suggest small" onClick={() => send(q)}>{q}</button>)}
               </div>
             )}
           </div>
@@ -234,16 +258,25 @@ export function GeniePanel({ open, onClose, context, onClearWells, prefill, onPr
       </div>
 
       <form className="genie-input" onSubmit={e => { e.preventDefault(); send(input) }}>
-        <textarea
-          ref={inputRef}
-          value={input}
-          placeholder={attach ? 'Ask about your selection, e.g. “Which of these operators is growing fastest?”' : 'Ask a question about the data…'}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input) } }}
-          rows={2}
-          disabled={!info?.space_id}
-        />
-        <button className="btn primary" type="submit" disabled={busy || !input.trim() || !info?.space_id}>Ask</button>
+        <div className="composer">
+          <textarea
+            ref={inputRef}
+            value={input}
+            placeholder={attach ? 'Ask about your selection…' : 'Ask a question about the data…'}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input) } }}
+            rows={1}
+            disabled={!info?.space_id}
+            aria-label="Question for Genie"
+          />
+          <button className="send" type="submit" disabled={busy || !input.trim() || !info?.space_id}
+            aria-label="Ask Genie" title="Ask (Enter)">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" />
+            </svg>
+          </button>
+        </div>
+        <div className="composer-hint">{busy ? 'Genie is answering…' : 'Enter to ask · Shift+Enter for a new line'}</div>
       </form>
     </aside>
   )

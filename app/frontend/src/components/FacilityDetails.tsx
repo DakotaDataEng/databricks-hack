@@ -100,7 +100,7 @@ export function FacilityDetails({ facilityId, candidates, tariffs, selected, onC
                   <Row label="Score" value={dec(cand.final_score, 3)} />
                 </>
               ) : (
-                <p className="muted small-text">Not in the ranking (below the size floor, excluded, or not producing).</p>
+                <p className="muted small-text">Not ranked: too small, excluded or not producing.</p>
               )}
             </>
           )}
@@ -124,7 +124,7 @@ export function FacilityDetails({ facilityId, candidates, tariffs, selected, onC
                   </label>
                 ))}
               </div>
-              <p className="muted small-text">Lifetime 2024–25 totals. Ticked wells are sent to Genie as context.</p>
+              <p className="muted small-text">2024–25 totals. Ticked wells are sent to Genie with your question.</p>
             </>
           ) : (
             <p className="muted small-text">{wells ? 'No wells linked to this facility in the NGL well data.' : 'Loading…'}</p>

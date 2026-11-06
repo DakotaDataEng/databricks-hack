@@ -29,15 +29,15 @@ export function Top3View({ rank, onShowOnMap, onAskGenie }: Props) {
     <section className="content padded">
       <header className="section-head">
         <div>
-          <h2>Compare the top 3</h2>
-          <p className="muted">The three best-scoring candidates under the current assumptions. Change them on the Rank tab and this page updates.</p>
+          <h2>Top 3 candidates</h2>
+          <p className="muted">The three best-scoring candidates. This page updates when you change assumptions on the Rank tab.</p>
         </div>
       </header>
       <details className="explain">
-        <summary>How are transport savings estimated?</summary>
+        <summary>Transport savings method</summary>
         <ul>
-          <li>For each of the candidate's facilities we measure how far its oil, condensate and gas travel today (to where Petrinex says it actually ships) and how far the nearest suitable CNRL facility is.</li>
-          <li>If CNRL is closer, the shorter haul × 2025 volume × tariff is the saving: liquids into CNRL batteries at ${dec(Number(a.liq_tariff_per_m3_km), 2)}/m³/km,
+          <li>For each facility, we compare how far its oil, condensate and gas travel today (to where Petrinex says they ship) with the distance to the nearest suitable CNRL facility.</li>
+          <li>If CNRL is closer, the saving is the distance saved × 2025 volume × tariff: liquids into CNRL batteries at ${dec(Number(a.liq_tariff_per_m3_km), 2)}/m³/km,
             gas into CNRL plants and gathering systems at ${dec(Number(a.gas_tariff_per_e3m3_km), 2)}/e³m³/km <em>(placeholder tariff)</em>.</li>
         </ul>
       </details>
@@ -77,7 +77,7 @@ export function Top3View({ rank, onShowOnMap, onAskGenie }: Props) {
 
       <div className="grid2">
         <div className="panel">
-          <h3>Transport savings per year, by product</h3>
+          <h3>Transport savings by product</h3>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={chart} layout="vertical" margin={{ left: 8, right: 64 }}>
               <CartesianGrid horizontal={false} stroke="#e1e0d9" />
@@ -107,7 +107,7 @@ export function Top3View({ rank, onShowOnMap, onAskGenie }: Props) {
           </ResponsiveContainer>
         </div>
         <div className="panel">
-          <h3>Value created if conditions change</h3>
+          <h3>Value created by scenario</h3>
           <div className="table-wrap">
             <table className="data">
               <thead>

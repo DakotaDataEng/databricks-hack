@@ -56,8 +56,8 @@ export function RankingView({ rank, loading, assumptions, overrides, onOverride,
       <section className="content">
         <header className="section-head">
           <div>
-            <h2>Rank acquisition candidates</h2>
-            <p className="muted">Every producing operator, scored on the value it would create for CNRL, how close it sits to CNRL's assets and how much it looks like the deals CNRL has done. Click a row to see it on the map.</p>
+            <h2>Acquisition candidates</h2>
+            <p className="muted">Every producing operator, scored on the value it would create for CNRL, its distance to CNRL assets and how closely it matches CNRL’s past deals. Click a row to see it on the map.</p>
           </div>
           {loading && <span className="muted">Updating…</span>}
         </header>
@@ -84,7 +84,7 @@ export function RankingView({ rank, loading, assumptions, overrides, onOverride,
 
         {b && (
           <details className="explain">
-            <summary>How is this scored?</summary>
+            <summary>Scoring method</summary>
             <ul>
               <li><b>Value created</b> = 10 years of after-tax cash flow, discounted at {pct(Number(a?.discount_rate))}, minus the price paid
                 ({a?.price_basis === 'mix'
@@ -94,7 +94,7 @@ export function RankingView({ rank, loading, assumptions, overrides, onOverride,
               <li><b>Proximity</b> rewards production within 10, 25 and 50 km of a CNRL facility.</li>
               <li><b>Fit with past deals</b> compares size, gas share and distance with CNRL's {b.deals.length} big 2024–25 deals
                 ({b.deals.map(d => d.split(' ')[0]).join(', ')}): typically {compact(b.boe_d)} boe/d, {pct(b.gas_share)} gas, {km(b.median_km)} from existing CNRL assets.</li>
-              <li>Production is assumed to decline {pct(b.decline, 0)} a year (those past deals were actually growing beforehand, so the floor applies) and {pct(1 - b.retention, 0)} is lost in integration, as seen after CNRL's past deals.</li>
+              <li>Production is assumed to decline {pct(b.decline, 0)} a year (the minimum, because CNRL’s past deals were still growing when bought), and {pct(1 - b.retention, 0)} is lost in integration, as happened after those deals.</li>
             </ul>
           </details>
         )}

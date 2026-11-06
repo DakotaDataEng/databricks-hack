@@ -137,7 +137,7 @@ export default function App() {
               onOverride={setOverride} onReset={() => setOverrides({})} onShowOnMap={showOnMap} operatorNames={operatorNames} />
           )}
           {tab === 'top3' && <Top3View rank={rank} onShowOnMap={showOnMap} onAskGenie={askGenie} />}
-          {tab === 'precedents' && <PrecedentsView precedents={precedents} rank={rank} />}
+          {tab === 'precedents' && <PrecedentsView precedents={precedents} rank={rank} operatorNames={operatorNames} />}
         </main>
         <GeniePanel
           open={genieOpen}
