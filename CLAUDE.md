@@ -31,6 +31,12 @@ CNRL acquisition explorer. The spec is [ref/perfect-prompt.md](ref/perfect-promp
 - Genie space "CNRL Acquisition Explorer - Petrinex Genie" (`app/genie_space.json`): definition in `genie/spec.py`, published by `scripts/genie_space.py` (`--validate` runs every example SQL first). The app's Ask Genie panel sends map selections as a "Map context" block (`app/backend/genie.py`).
 - Tests: `.venv/Scripts/python -m pytest` (unit). `RUN_DATABRICKS_TESTS=1 ... -m databricks` adds read-only warehouse data checks.
 
+## Playbooks
+`.claude/skills/` holds step-by-step skills from building this app: deploy (`databricks-app-deploy`), Lakebase
+(`lakebase-setup`), Genie (`genie-space`), new workspace (`workspace-onboarding`), live checks (`verify-deployed-app`),
+UI testing (`ui-browser-testing`) and SQL/pipeline (`uc-data-pipeline`). How Genie follow-up memory works:
+[.claude/docs/genie-conversation-memory.md](.claude/docs/genie-conversation-memory.md). Index: [.claude/README.md](.claude/README.md).
+
 ## Reference material
 `ref/` holds reference data and docs we add; see [ref/README.md](ref/README.md). The visual EDA is [ref/eda-report.html](ref/eda-report.html).
 
