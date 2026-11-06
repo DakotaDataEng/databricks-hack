@@ -5,7 +5,8 @@
     python scripts/genie_space.py              # create the space (or update it if app/genie_space.json has an id)
 
 The space id is written to app/genie_space.json so the backend (and the deployed app) can find it.
-Env: DATABRICKS_CONFIG_PROFILE (hack), DBX_WAREHOUSE (warehouse for the space and validation).
+Env: DATABRICKS_CONFIG_PROFILE (hack), DBX_WAREHOUSE (warehouse for the space and validation),
+GENIE_ID_FILE (where the space id is kept; default app/genie_space.json).
 """
 import argparse
 import hashlib
@@ -20,7 +21,8 @@ import spec  # noqa: E402
 from sql import WAREHOUSE, query  # noqa: E402
 
 PROFILE = os.environ.get("DATABRICKS_CONFIG_PROFILE", "hack")
-ID_FILE = ROOT / "app" / "genie_space.json"
+# Each workspace has its own space: point GENIE_ID_FILE at a per-workspace file (e.g. app/genie_space.dakota.json).
+ID_FILE = Path(os.environ.get("GENIE_ID_FILE", ROOT / "app" / "genie_space.json"))
 
 
 def sid(*parts):

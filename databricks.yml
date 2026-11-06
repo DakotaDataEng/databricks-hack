@@ -1,13 +1,16 @@
-# Databricks Asset Bundle for the CNRL Acquisition Explorer app.
-#   cd app/frontend && npm run build        # dist/ must exist; it is gitignored but synced (see sync.include)
-#   databricks bundle deploy -p hack        # create/update the app and upload ./app
-#   databricks bundle run cnrl_acquisition_explorer -p hack   # deploy the uploaded source and start the app
+# Databricks Asset Bundle for the acquisition explorer app. One target per workspace:
+#   prod    hackathon workspace: app cnrl-acquisition-explorer, Lakebase instance cnrl-acq
+#   dakota  dakotadatabricks workspace: app acquisition-app, Lakebase Autoscaling project acquisition-app
+#
+#   cd app/frontend && npm run build                     # dist/ must exist; it is gitignored but synced (see sync.include)
+#   databricks bundle deploy -t <target> -p <profile>    # create/update the app and upload ./app
+#   databricks bundle run cnrl_acquisition_explorer -t <target> -p <profile>   # deploy the uploaded source and start the app
 bundle:
-  name: cnrl-acquisition-explorer
+  name: cnrl-acquisition-explorer  # internal; renaming it would orphan the prod deployment
 
 variables:
   genie_space_id:
-    description: Genie space created by scripts/genie_space.py (also recorded in app/genie_space.json)
+    description: Genie space created by scripts/genie_space.py (recorded in app/genie_space*.json)
     default: 01f1d2fee6fd12abbd56ed699d055599
   warehouse_id:
     description: SQL warehouse the Genie space runs its queries on
@@ -20,30 +23,66 @@ sync:
 resources:
   apps:
     cnrl_acquisition_explorer:
-      name: cnrl-acquisition-explorer
-      description: "CNRL acquisition explorer: Petrinex 2024-25 candidates, lasso map and ranking, served from Lakebase"
       source_code_path: ./app
-      resources:
-        - name: database
-          description: Lakebase database with the app tables (shm_hack.acq copies)
-          database:
-            instance_name: cnrl-acq
-            database_name: acq
-            permission: CAN_CONNECT_AND_CREATE
-        - name: genie-space
-          description: Genie agent behind the Ask Genie panel
-          genie_space:
-            name: CNRL Acquisition Explorer - Petrinex Genie
-            space_id: ${var.genie_space_id}
-            permission: CAN_RUN
-        - name: sql-warehouse
-          description: Warehouse Genie runs its SQL on
-          sql_warehouse:
-            id: ${var.warehouse_id}
-            permission: CAN_USE
+      description: "Acquisition explorer: Petrinex 2024-25 candidates, lasso map and ranking, served from Lakebase"
 
 targets:
   prod:
     default: true
     workspace:
       host: https://adb-7808899982160538.18.azuredatabricks.net
+    resources:
+      apps:
+        cnrl_acquisition_explorer:
+          name: cnrl-acquisition-explorer
+          resources:
+            - name: database
+              description: Lakebase database with the app tables (shm_hack.acq copies)
+              database:
+                instance_name: cnrl-acq
+                database_name: acq
+                permission: CAN_CONNECT_AND_CREATE
+            - name: genie-space
+              description: Genie agent behind the Ask Genie panel
+              genie_space:
+                name: CNRL Acquisition Explorer - Petrinex Genie
+                space_id: ${var.genie_space_id}
+                permission: CAN_RUN
+            - name: sql-warehouse
+              description: Warehouse Genie runs its SQL on
+              sql_warehouse:
+                id: ${var.warehouse_id}
+                permission: CAN_USE
+
+  dakota:
+    workspace:
+      host: https://adb-309407444942385.5.azuredatabricks.net
+    variables:
+      genie_space_id: 01f1d9f9c48b178cb928e9721966c1ca
+      warehouse_id: 05b87f6842570f60
+    resources:
+      apps:
+        cnrl_acquisition_explorer:
+          name: acquisition-app
+          config:
+            command: ["python", "backend/serve.py"]
+            env:
+              - name: LAKEBASE_ENDPOINT
+                value: projects/acquisition-app/branches/production/endpoints/primary
+              - name: GENIE_SPACE_ID
+                value: ${var.genie_space_id}
+          resources:
+            - name: postgres
+              description: Lakebase Autoscaling database with the app tables (shm_hack.acq copies)
+              postgres:
+                branch: projects/acquisition-app/branches/production
+                database: projects/acquisition-app/branches/production/databases/acq
+                permission: CAN_CONNECT_AND_CREATE
+            - name: genie-space
+              description: Genie agent behind the Ask Genie panel
+              genie_space:
+                name: Acquisition app Genie
+                space_id: ${var.genie_space_id}
+                permission: CAN_RUN
+            # The apps warehouse is granted to the app's service principal separately: attaching it here needs
+            # CAN_MANAGE on the warehouse, and the deploying user has CAN_USE.

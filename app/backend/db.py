@@ -1,8 +1,13 @@
 """Lakebase (Postgres) connection pool using short-lived Databricks OAuth tokens.
 
+Two kinds of Lakebase are supported:
+- a Lakebase Autoscaling project, when LAKEBASE_ENDPOINT is set
+  (projects/<project>/branches/<branch>/endpoints/<endpoint>);
+- otherwise a provisioned database instance, LAKEBASE_INSTANCE (default `cnrl-acq`).
+
 In a Databricks App the database resource injects PGHOST / PGDATABASE / PGUSER and the app's
 service-principal credentials. Locally, the CLI profile (DATABRICKS_CONFIG_PROFILE, default `hack`)
-is used and the host is looked up from the instance.
+is used and the host is looked up from the endpoint or instance.
 """
 import os
 import time
@@ -19,6 +24,7 @@ psycopg.adapters.register_loader("numeric", FloatLoader)  # numeric -> float, so
 if "DATABRICKS_CLIENT_ID" not in os.environ:  # not running as a Databricks App
     os.environ.setdefault("DATABRICKS_CONFIG_PROFILE", "hack")
 
+ENDPOINT = os.environ.get("LAKEBASE_ENDPOINT")
 INSTANCE = os.environ.get("LAKEBASE_INSTANCE", "cnrl-acq")
 TOKEN_TTL_SECONDS = 30 * 60
 
@@ -28,9 +34,20 @@ _token = {"value": None, "issued": 0.0}
 
 def _get_token():
     if time.time() - _token["issued"] > TOKEN_TTL_SECONDS:
-        cred = ws.database.generate_database_credential(request_id=str(uuid.uuid4()), instance_names=[INSTANCE])
+        if ENDPOINT:
+            cred = ws.postgres.generate_database_credential(endpoint=ENDPOINT)
+        else:
+            cred = ws.database.generate_database_credential(request_id=str(uuid.uuid4()), instance_names=[INSTANCE])
         _token.update(value=cred.token, issued=time.time())
     return _token["value"]
+
+
+def _host():
+    if os.environ.get("PGHOST"):
+        return os.environ["PGHOST"]
+    if ENDPOINT:
+        return ws.postgres.get_endpoint(ENDPOINT).status.hosts.host
+    return ws.database.get_database_instance(INSTANCE).read_write_dns
 
 
 class OAuthConnection(psycopg.Connection):
@@ -41,19 +58,26 @@ class OAuthConnection(psycopg.Connection):
 
 
 def _conninfo():
-    host = os.environ.get("PGHOST") or ws.database.get_database_instance(INSTANCE).read_write_dns
     user = os.environ.get("PGUSER") or ws.current_user.me().user_name
-    return (f"host={host} port={os.environ.get('PGPORT', '5432')} "
+    return (f"host={_host()} port={os.environ.get('PGPORT', '5432')} "
             f"dbname={os.environ.get('PGDATABASE', 'acq')} user={user} "
             f"sslmode={os.environ.get('PGSSLMODE', 'require')}")
 
 
+# check_connection pings each connection before handing it out, so connections killed while Lakebase
+# Autoscaling was suspended (scale to zero) are replaced instead of failing the request.
 pool = ConnectionPool(_conninfo(), connection_class=OAuthConnection, min_size=1, max_size=5,
-                      max_lifetime=TOKEN_TTL_SECONDS, open=True)
+                      max_lifetime=TOKEN_TTL_SECONDS, check=ConnectionPool.check_connection, open=True)
 
 
-def query(sql, params=None):
-    with pool.connection() as conn, conn.cursor() as cur:
-        cur.execute(sql, params or {})
-        cols = [d.name for d in cur.description]
-        return pd.DataFrame(cur.fetchall(), columns=cols)
+def query(sql, params=None, retries=1):
+    try:
+        with pool.connection() as conn, conn.cursor() as cur:
+            cur.execute(sql, params or {})
+            cols = [d.name for d in cur.description]
+            return pd.DataFrame(cur.fetchall(), columns=cols)
+    except psycopg.OperationalError:
+        # The compute can be shut down mid-query (suspend/restart); one retry on a fresh connection.
+        if not retries:
+            raise
+        return query(sql, params, retries - 1)

@@ -5,8 +5,9 @@
 
 Creates the database if missing, then drops/recreates each table and COPYs the rows in. Recreated tables lose
 their grants, so the deployed app's service principal is granted SELECT again (skipped if the app doesn't exist).
-Env: ACQ_CATALOG (shm_hack), LAKEBASE_INSTANCE (cnrl-acq), LAKEBASE_DB (acq), DATABRICKS_CONFIG_PROFILE (hack),
-APP_NAME (cnrl-acquisition-explorer).
+Env: ACQ_CATALOG (shm_hack), LAKEBASE_ENDPOINT (a Lakebase Autoscaling endpoint, projects/<p>/branches/<b>/
+endpoints/<e>; when set it is used instead of LAKEBASE_INSTANCE, and its database must already exist),
+LAKEBASE_INSTANCE (cnrl-acq), LAKEBASE_DB (acq), DATABRICKS_CONFIG_PROFILE (hack), APP_NAME (cnrl-acquisition-explorer).
 """
 import argparse
 import os
@@ -21,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from sql import query  # noqa: E402
 
 CATALOG = os.environ.get("ACQ_CATALOG", "shm_hack")
+ENDPOINT = os.environ.get("LAKEBASE_ENDPOINT")
 INSTANCE = os.environ.get("LAKEBASE_INSTANCE", "cnrl-acq")
 DATABASE = os.environ.get("LAKEBASE_DB", "acq")
 PROFILE = os.environ.get("DATABRICKS_CONFIG_PROFILE", "hack")
@@ -57,9 +59,13 @@ def pg_type(uc_type):
 
 def connect(dbname):
     w = WorkspaceClient(profile=PROFILE)
-    inst = w.database.get_database_instance(INSTANCE)
-    token = w.database.generate_database_credential(request_id=str(uuid.uuid4()), instance_names=[INSTANCE]).token
-    return psycopg.connect(host=inst.read_write_dns, dbname=dbname, user=w.current_user.me().user_name,
+    if ENDPOINT:
+        host = w.postgres.get_endpoint(ENDPOINT).status.hosts.host
+        token = w.postgres.generate_database_credential(endpoint=ENDPOINT).token
+    else:
+        host = w.database.get_database_instance(INSTANCE).read_write_dns
+        token = w.database.generate_database_credential(request_id=str(uuid.uuid4()), instance_names=[INSTANCE]).token
+    return psycopg.connect(host=host, dbname=dbname, user=w.current_user.me().user_name,
                            password=token, sslmode="require", autocommit=True)
 
 
@@ -76,10 +82,13 @@ def grant_app(conn):
 
 
 def load():
-    with connect("databricks_postgres") as conn:
-        if not conn.execute("SELECT 1 FROM pg_database WHERE datname = %s", (DATABASE,)).fetchone():
-            conn.execute(f'CREATE DATABASE "{DATABASE}"')
-            print(f"created database {DATABASE}")
+    # An Autoscaling project's database is created through its API (postgres create-database), so the app
+    # resource can point at it; only a provisioned instance gets it created here.
+    if not ENDPOINT:
+        with connect("databricks_postgres") as conn:
+            if not conn.execute("SELECT 1 FROM pg_database WHERE datname = %s", (DATABASE,)).fetchone():
+                conn.execute(f'CREATE DATABASE "{DATABASE}"')
+                print(f"created database {DATABASE}")
 
     with connect(DATABASE) as conn:
         for table, (schema, pk, keep) in TABLES.items():
