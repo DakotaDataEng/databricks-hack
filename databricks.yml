@@ -64,6 +64,11 @@ targets:
       apps:
         cnrl_acquisition_explorer:
           name: acquisition-app
+          # Everyone in the workspace can open it; the app reads Lakebase and runs Genie as its own service principal,
+          # so viewers need no data permissions of their own.
+          permissions:
+            - group_name: users
+              level: CAN_USE
           config:
             command: ["python", "backend/serve.py"]
             env:
